@@ -1,3 +1,4 @@
+import pylab as p
 from scipy.sparse import csgraph
 from sklearn.metrics.pairwise import euclidean_distances
 import numpy as np
@@ -8,7 +9,8 @@ from sklearn import metrics
 import matplotlib.pyplot as plt
 import random
 import pandas as pd
-def load_data(data_raw,true_labels,num:int= 1,random_seed=None):
+# import cupy as cp
+def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):
     """
     随机抽取样本点，其保证在random_seed相同时，num=2是在num=1的情况下增加了1个有标签的样本
     :param data_raw: 原数据集
@@ -37,16 +39,44 @@ def load_data(data_raw,true_labels,num:int= 1,random_seed=None):
         # print(i)
         if i not in label:
             mixed_labels[i] = -1
-    # for i in range(len(y_mixed)):
-    #     if y_mixed[i] == -1:
-    #         continue
-    #     if rng.random() < noise_rate:  # 将有标签的样本中的noise_rate替换为随机标签
-    #         candidate_ids = np.random.permutation(n_class).tolist()
-    #         candidate_ids.remove(y_mixed[i])
-    #         y_mixed[i] = candidate_ids[0]
     ss = StandardScaler()
     data_raw = ss.fit_transform(data_raw)
     return data_raw, true_labels, mixed_labels, labels ,label
+
+def load_data_bypersent(data_raw,true_labels,percent=0.02,random_seed=None):
+    """
+    随机抽取样本点，其保证在random_seed相同时，num=2是在num=1的情况下增加了1个有标签的样本
+    :param data_raw: 原数据集
+    :param true_labels: 原数据集的标签
+    :param num: 每个聚类中选取的样本点个数
+    :param random_seed: 随机数种子
+    :return:mixed_label表示抽取后的样本标签,labels表示各个聚类的抽签顺序
+    """
+    num = int(len(data_raw)*percent)
+    random.seed(random_seed)
+    labels = {}
+    for index, value in enumerate(true_labels):
+        if value not in labels.keys():
+            labels[value] = [index]
+        else:
+            labels.get(value).append(index)
+    for value in labels.values():
+        random.shuffle(value)
+    label = []
+    for i in range(num):
+        for value in labels.values():
+            label.append(value[i])
+    # print(label)
+    # print(random_unlabeled_points)
+    mixed_labels = deepcopy(true_labels)
+    for i in range(len(mixed_labels)):
+        # print(i)
+        if i not in label:
+            mixed_labels[i] = -1
+    ss = StandardScaler()
+    data_raw = ss.fit_transform(data_raw)
+    return data_raw, true_labels, mixed_labels, labels ,label
+
 def get_distance_matrix(datas):
     n = np.shape(datas)[0]
     distance_matrix = np.zeros((n, n))
@@ -57,26 +87,41 @@ def get_distance_matrix(datas):
             distance_matrix[i, j] = np.sqrt(np.dot((v_i - v_j), (v_i - v_j)))
     return distance_matrix
 
-def density_based_kernel(X, sigma):
-    gamma = 1.0 / sigma
-    # gamma = 1.0 / X.shape[0]
-    K = get_distance_matrix(X)
-    K *= -gamma
+def density_based_kernel(X, sigma, label):
+    n = np.shape(X)[0]
+
+    delta = get_delta(X,label)
+    delta = np.tile(delta,np.shape(delta)[0])
+    delta = delta.reshape(n,n)
+
+    K = euclidean_distances(X) - delta
+    K *= -sigma
+    K -= np.max(K)  # 防止数据溢出
     np.exp(K, K)
+
     K =(K.T + K)* 0.5
+    K = K.flatten()
+    K[label] = 0
+    K = K.reshape(n,n)
     return K
 
 def gaussian_kernel(X,sigma= 20):
-    K = get_distance_matrix(X)
+    K = euclidean_distances(X)
     K *= -sigma
     np.exp(K, K)  # <==> K = np.exp(K)
     return K
 
 def get_delta(X,label):
-    n = np.shape(X)[0]
-    delta = np.zeros((n,n))
-    N = X.copy()
-    N = n[label]
+    n = X.shape[0]
+    d = euclidean_distances(X)
+    delta = np.zeros(n)
+    for i in range(n):
+        if i in label:
+            delta[i] = min(d[i])
+        else:
+            delta[i] = max(d[i])
+    return delta
+
 
 class LabelSpreading():
     """Base class for label propagation module.
@@ -87,8 +132,9 @@ class LabelSpreading():
         self.b = b
     def _get_gaussian_kernel(self, X, sigma):
         return gaussian_kernel(X, sigma)
-
-    def _get_sigma(self, X, label):
+    def _get_density_based_kernel(self,X, sigma, label):
+        return density_based_kernel(X,sigma,label)
+    def _get_constant(self, X, label):
         num = 1 / len(label)
         k = X.copy()
         k = k[label]
@@ -96,13 +142,27 @@ class LabelSpreading():
         data = np.sum(data, axis=1)
         sigma = self.b * num * data
         self.sigma = sigma
-        return sigma
+
+        n = X.shape[0]
+        d = euclidean_distances(X)
+        delta = np.zeros(n)
+        for i in range(n):
+            if i in label:
+                delta[i] = min(d[i])
+            else:
+                delta[i] = max(d[i])
+        self.delta = delta
+        self.label = label
+        return sigma,delta,label
 
     def _build_graph(self):
         # 计算标准化后的拉普拉斯矩阵
         n_samples = self.X_.shape[0]
-        affinity_matrix = self._get_gaussian_kernel(self.X_, self.sigma)
+        # 切换knn或dng
+        # affinity_matrix = self._get_gaussian_kernel(self.X_, self.sigma)
+        affinity_matrix = self._get_density_based_kernel(self.X_, self.sigma, self.label)
         # D^{-1/2}WD^{-1/2}
+
         laplacian = -csgraph.laplacian(affinity_matrix, normed=True)
         laplacian.flat[::n_samples + 1] = 0.0  # 设置对角线原始全为0
         return laplacian
@@ -155,10 +215,10 @@ class LabelSpreading():
         y : ndarray of shape (n_samples,)
             Predictions for input data.
         """
-        probas = self.predict_proba(X)
+        probas = self.predict_proba()
         return self.classes_[np.argmax(probas, axis=1)].ravel()
 
-    def predict_proba(self, X):
+    def predict_proba(self):
         """
         概率预测
         Parameters
@@ -169,7 +229,10 @@ class LabelSpreading():
         -------
         probabilities : shape (n_samples, n_classes)
         """
-        weight_matrices = self._get_gaussian_kernel(self.X_,self.sigma)
+        #切换knn或dng
+        # weight_matrices = self._get_gaussian_kernel(self.X_,self.sigma)
+        weight_matrices = self._get_density_based_kernel(self.X_,self.sigma,self.label)
+
         weight_matrices = weight_matrices.T
         probabilities = np.matmul(weight_matrices, self.label_distributions_)
         normalizer = np.sum(probabilities, axis=1, keepdims=True)
@@ -182,15 +245,16 @@ class LabelSpreading():
         acc = metrics.accuracy_score(self.predict(X), y)
         return metrics.classification_report(self.predict(X), y, zero_division=1),acc
 
-    def label_drawing(self, X, data_raw,labels):
+    def label_drawing(self, X, labels):
         y = self.predict(X)
         # iris = load_iris()
-        X = data_raw
         targets = list(labels.keys())
         # features = iris.feature_names
         plt.figure(figsize=(10, 4))
+        # plt.figure()
+        # print(X,y,labels,targets)
         for i in range(len(labels)):
-            plt.scatter(X[:, 0][y == i], X[:, 1][y == i],label=targets[i])
+            plt.scatter(X[:, 0][y == targets[i]], X[:, 1][y == targets[i]],label=targets[i])
         # plt.plot(X[:, 0][y == 0], X[:, 1][y == 0], 'bs', label=targets[0])
         # plt.plot(X[:, 0][y == 1], X[:, 1][y == 1], 'kx', label=targets[1])
         # plt.plot(X[:, 0][y == 2], X[:, 1][y == 2], 'ro', label=targets[2])
@@ -198,24 +262,14 @@ class LabelSpreading():
         # plt.ylabel(features[1])
         plt.legend()
         plt.show()
-
-
-def test_label_spreading():
-    data_raw, true_labels = load_iris(return_X_y=True)
-    # data_raw,true_labels = load_titanic('train.csv')
-    x, y, y_mixed,labels,label = load_data(data_raw,true_labels,num=1,random_seed=2023)
-    model = LabelSpreading(b=0.5)
-    model._get_sigma(data_raw,label)
-    model.fit(x, y_mixed)
-    # sigma = _get_sigma(data_raw,label,b=0.5)
-    # print(sigma)
-    score, acc = model.score(x, y)
-    print(score)
-    print('准确度为',acc)
-    # print(label)
-    model.label_drawing(x,data_raw,labels)
-
-
+def load_excel(path):
+    full_data = pd.read_excel(path)
+    true_labels = full_data.iloc[:,-1]
+    data = full_data.iloc[:,0:-1]
+    data = data.to_numpy()
+    true_labels = true_labels.to_numpy()
+    # print(data,true_labels)
+    return data, true_labels
 def load_titanic(path):
     data = pd.read_csv(path, header=0)
     data = data.drop(columns=['PassengerId', 'Name', 'Sex' ,'Age', 'Ticket', 'Cabin', 'Embarked'], axis=1)
@@ -225,5 +279,29 @@ def load_titanic(path):
     data = data.drop('Survived', axis=1)
     data = data.to_numpy()
     return data, survived
+def test_label_spreading():
+    # 加载文件位置
+    # data_raw, true_labels = load_iris(return_X_y=True)
+    # data_raw,true_labels = load_titanic('train.csv')
+    data_raw, true_labels = load_excel('./real_raw/wine.xlsx')
+    # 选取样本个数或总百分比
+    # x, y, y_mixed,labels,label = load_data_bynum(data_raw,true_labels,random_seed=2023,num=2)
+    x, y, y_mixed,labels,label = load_data_bypersent(data_raw,true_labels,random_seed=2023,percent=0.02)
+
+    model = LabelSpreading(alpha=0.2,b=0.5)
+    model._get_constant(data_raw,label)
+
+    model.fit(x, y_mixed)
+    # _get_sigma(data_raw,label,b=0.5)
+    # print(sigma)
+    # delta = _get_delta(data_raw,label)
+    # print(delta)
+    # kernel = density_based_kernel(data_raw,model.sigma,label)
+    score, acc = model.score(x, y)
+    print(score)
+    print('准确度为',acc)
+    # print(label)
+    model.label_drawing(x,labels)
+
 if __name__ == '__main__':
     test_label_spreading()
