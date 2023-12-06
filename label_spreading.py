@@ -266,15 +266,6 @@ def load_excel(path):
 
     # print(data_maxmin)
     return data_maxmin, true_labels
-def load_titanic(path):
-    data = pd.read_csv(path, header=0)
-    data = data.drop(columns=['PassengerId', 'Name', 'Sex' ,'Age', 'Ticket', 'Cabin', 'Embarked'], axis=1)
-    # data.drop(axis=0)
-    survived = data['Survived']
-    survived = survived.to_numpy()
-    data = data.drop('Survived', axis=1)
-    data = data.to_numpy()
-    return data, survived
 def test_label_spreading():
     # 加载文件位置
     # data_raw, true_labels = load_iris(return_X_y=True)

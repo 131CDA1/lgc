@@ -36,6 +36,15 @@ import random
 #     return data_raw, true_labels, mixed_labels
 import numpy as np
 import pandas as pd
+def load_titanic(path):
+    data = pd.read_csv(path, header=0)
+    data = data.drop(columns=['PassengerId', 'Name', 'Sex' ,'Age', 'Ticket', 'Cabin', 'Embarked'], axis=1)
+    # data.drop(axis=0)
+    survived = data['Survived']
+    survived = survived.to_numpy()
+    data = data.drop('Survived', axis=1)
+    data = data.to_numpy()
+    return data, survived
 
 
 if __name__ == '__main__' :
