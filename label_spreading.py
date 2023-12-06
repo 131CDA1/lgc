@@ -1,15 +1,12 @@
-import pylab as p
 from scipy.sparse import csgraph
 from sklearn.metrics.pairwise import euclidean_distances
 import numpy as np
-from sklearn.datasets import load_iris
 from copy import deepcopy
 from sklearn.preprocessing import StandardScaler
 from sklearn import metrics
 import matplotlib.pyplot as plt
 import random
 import pandas as pd
-# import cupy as cp
 def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):
     """
     随机抽取样本点，其保证在random_seed相同时，num=2是在num=1的情况下增加了1个有标签的样本
@@ -44,14 +41,6 @@ def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):
     return data_raw, true_labels, mixed_labels, labels ,label
 
 def load_data_bypersent(data_raw,true_labels,percent=0.02,random_seed=None):
-    """
-    随机抽取样本点，其保证在random_seed相同时，num=2是在num=1的情况下增加了1个有标签的样本
-    :param data_raw: 原数据集
-    :param true_labels: 原数据集的标签
-    :param num: 每个聚类中选取的样本点个数
-    :param random_seed: 随机数种子
-    :return:mixed_label表示抽取后的样本标签,labels表示各个聚类的抽签顺序
-    """
     num = int(len(data_raw)*percent)
     random.seed(random_seed)
     labels = {}
@@ -96,13 +85,14 @@ def density_based_kernel(X, sigma, label):
 
     K = euclidean_distances(X) - delta
     K *= -sigma
-    K -= np.max(K)  # 防止数据溢出
+    # K -= np.max(K)  # 防止数据溢出
     np.exp(K, K)
 
     K =(K.T + K)* 0.5
     K = K.flatten()
     K[label] = 0
     K = K.reshape(n,n)
+    np.fill_diagonal(K,0)
     return K
 
 def gaussian_kernel(X,sigma= 20):
@@ -127,13 +117,17 @@ class LabelSpreading():
     """Base class for label propagation module.
     """
 
-    def __init__(self, alpha=0.2, b=0.5):
+    def __init__(self, type, alpha=0.2, b=0.5):
         self.alpha = alpha
         self.b = b
-    def _get_gaussian_kernel(self, X, sigma):
-        return gaussian_kernel(X, sigma)
-    def _get_density_based_kernel(self,X, sigma, label):
-        return density_based_kernel(X,sigma,label)
+        self.type = type
+    def _get_kernel(self, X, sigma, label, type = ""):
+        if type == 'knn':
+            return gaussian_kernel(X,sigma)
+        elif type == 'dng':
+            return density_based_kernel(X, sigma, label)
+        else:
+            return "type变量名错误"
     def _get_constant(self, X, label):
         num = 1 / len(label)
         k = X.copy()
@@ -159,8 +153,7 @@ class LabelSpreading():
         # 计算标准化后的拉普拉斯矩阵
         n_samples = self.X_.shape[0]
         # 切换knn或dng
-        # affinity_matrix = self._get_gaussian_kernel(self.X_, self.sigma)
-        affinity_matrix = self._get_density_based_kernel(self.X_, self.sigma, self.label)
+        affinity_matrix = self._get_kernel(self.X_, self.sigma, self.label, self.type)
         # D^{-1/2}WD^{-1/2}
 
         laplacian = -csgraph.laplacian(affinity_matrix, normed=True)
@@ -230,8 +223,7 @@ class LabelSpreading():
         probabilities : shape (n_samples, n_classes)
         """
         #切换knn或dng
-        # weight_matrices = self._get_gaussian_kernel(self.X_,self.sigma)
-        weight_matrices = self._get_density_based_kernel(self.X_,self.sigma,self.label)
+        weight_matrices = self._get_kernel(self.X_, self.sigma, self.label, self.type)
 
         weight_matrices = weight_matrices.T
         probabilities = np.matmul(weight_matrices, self.label_distributions_)
@@ -269,7 +261,11 @@ def load_excel(path):
     data = data.to_numpy()
     true_labels = true_labels.to_numpy()
     # print(data,true_labels)
-    return data, true_labels
+    data_zscore = (data - data.mean(axis=0))/data.std(axis=0)
+    data_maxmin = (data - data.min())/(data.max() - data.min())
+
+    # print(data_maxmin)
+    return data_maxmin, true_labels
 def load_titanic(path):
     data = pd.read_csv(path, header=0)
     data = data.drop(columns=['PassengerId', 'Name', 'Sex' ,'Age', 'Ticket', 'Cabin', 'Embarked'], axis=1)
@@ -282,26 +278,32 @@ def load_titanic(path):
 def test_label_spreading():
     # 加载文件位置
     # data_raw, true_labels = load_iris(return_X_y=True)
-    # data_raw,true_labels = load_titanic('train.csv')
-    data_raw, true_labels = load_excel('./real_raw/wine.xlsx')
+    data_raw, true_labels = load_excel('./real_raw/iris.xlsx')
     # 选取样本个数或总百分比
     # x, y, y_mixed,labels,label = load_data_bynum(data_raw,true_labels,random_seed=2023,num=2)
     x, y, y_mixed,labels,label = load_data_bypersent(data_raw,true_labels,random_seed=2023,percent=0.02)
+    alpha = 0.2
+    b = 0.5
+    model_knn = LabelSpreading(type='knn', alpha=alpha, b=b)
+    model_knn._get_constant(data_raw,label)
+    model_knn.fit(x, y_mixed)
 
-    model = LabelSpreading(alpha=0.2,b=0.5)
-    model._get_constant(data_raw,label)
+    model_dng = LabelSpreading(type='dng', alpha=alpha, b=b)
+    model_dng._get_constant(data_raw,label)
+    model_dng.fit(x, y_mixed)
 
-    model.fit(x, y_mixed)
-    # _get_sigma(data_raw,label,b=0.5)
-    # print(sigma)
-    # delta = _get_delta(data_raw,label)
-    # print(delta)
-    # kernel = density_based_kernel(data_raw,model.sigma,label)
-    score, acc = model.score(x, y)
-    print(score)
-    print('准确度为',acc)
+
+    score_knn, acc_knn = model_knn.score(x, y)
+    print('knn算法:')
+    print(score_knn)
+    print('准确度为', acc_knn)
     # print(label)
-    model.label_drawing(x,labels)
+    model_knn.label_drawing(x, labels)
 
+    score_dng , acc_dng = model_dng.score(x, y)
+    print('dng算法:')
+    print(score_dng)
+    print('准确度为', acc_dng)
+    model_dng.label_drawing(x, labels)
 if __name__ == '__main__':
     test_label_spreading()
