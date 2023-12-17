@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -61,6 +63,7 @@ def get_deltas(distance_matrix, rhos):
 
 def find_k_centers(rhos, deltas, k):
     rho_and_delta = rhos * deltas
+    # print(rho_and_delta)
     centers = np.argsort(-rho_and_delta)
     return centers[:k]
 

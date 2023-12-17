@@ -1,67 +1,59 @@
-from sklearn.datasets import load_iris
-from copy import deepcopy
-from sklearn.preprocessing import StandardScaler
-import random
-# def load_data(data_raw,true_labels,num=1,random_seed=2023):
-#     random.seed(random_seed)
-#     labels = {}
-#     for index, value in enumerate(true_labels):
-#         if value not in labels.keys():
-#             labels[value] = [index]
-#         else:
-#             labels.get(value).append(index)
-#     for value in labels.values():
-#         random.shuffle(value)
-#     label = []
-#     for i in range(num):
-#         for value in labels.values():
-#             label.append(value[i])
-#     # print(label)
-#     # print(random_unlabeled_points)
-#     mixed_labels = deepcopy(true_labels)
-#     # print(mixed_labels)
-#     for i in range(len(mixed_labels)):
-#         # print(i)
-#         if i not in label:
-#             mixed_labels[i] = -1
-#     # for i in range(len(y_mixed)):
-#     #     if y_mixed[i] == -1:
-#     #         continue
-#     #     if rng.random() < noise_rate:  # 将有标签的样本中的noise_rate替换为随机标签
-#     #         candidate_ids = np.random.permutation(n_class).tolist()
-#     #         candidate_ids.remove(y_mixed[i])
-#     #         y_mixed[i] = candidate_ids[0]
-#     ss = StandardScaler()
-#     data_raw = ss.fit_transform(data_raw)
-#     return data_raw, true_labels, mixed_labels
-import numpy as np
-import pandas as pd
-def load_titanic(path):
-    data = pd.read_csv(path, header=0)
-    data = data.drop(columns=['PassengerId', 'Name', 'Sex' ,'Age', 'Ticket', 'Cabin', 'Embarked'], axis=1)
-    # data.drop(axis=0)
-    survived = data['Survived']
-    survived = survived.to_numpy()
-    data = data.drop('Survived', axis=1)
-    data = data.to_numpy()
-    return data, survived
-
+from label_spreading import *
+from examples import *
+def select_dc(distance_matrix,percent=0.02):
+    n = np.shape(distance_matrix)[0]
+    distance_array = np.reshape(distance_matrix, n * n)     # 将300x300的距离矩阵铺平为90000x1的向量
+    position = int(n * (n - 1) * percent)
+    dc = np.sort(distance_array)[position + n]
+    # 取数据集的第2%的距离当做dc
+    return dc
+def get_local_density(distance_matrix, dc, method=None):
+    n = np.shape(distance_matrix)[0]
+    rhos = np.zeros(n)
+    for i in range(n):
+        if method is None:
+            rhos[i] = np.where(distance_matrix[i, :] < dc)[0].shape[0] - 1
+        else:
+            pass
+    # 直接对每个点周围距离小于dc的点进行计数,输出一个300的密度向量
+    return rhos
+def get_deltas(distance_matrix, rhos):
+    n = np.shape(distance_matrix)[0]
+    deltas = np.zeros(n)
+    nearest_neighbor = np.zeros(n)
+    rhos_index = np.argsort(-rhos)  # 得到密度ρ从大到小的排序的索引
+    for i, index in enumerate(rhos_index):
+        if i == 0:
+            continue
+        higher_rhos_index = rhos_index[:i]
+        deltas[index] = np.min(distance_matrix[index, higher_rhos_index])
+        nearest_neighbors_index = np.argmin(distance_matrix[index, higher_rhos_index])
+        nearest_neighbor[index] = higher_rhos_index[nearest_neighbors_index].astype(int)
+    deltas[rhos_index[0]] = np.max(deltas)
+    return deltas, nearest_neighbor
+def find_k_centers(distance_matrix, percent, k):
+    dc = select_dc(distance_matrix,percent)
+    rhos = get_local_density(distance_matrix, dc)
+    deltas, nearest_neighbor = get_deltas(distance_matrix, rhos)
+    rho_and_delta = rhos * deltas
+    centers = np.argsort(-rho_and_delta)
+    return centers[:k]
 
 if __name__ == '__main__' :
-    # data_raw, true_labels = load_iris(return_X_y=True)
-    # x,y,y_mixed = load_data(data_raw,true_labels,2)
-    # print(y_mixed)
-
-    # a = np.loadtxt(open(path, 'rb'), delimiter=",", skiprows=1)
-    path = 'train.csv'
-    data = pd.read_csv(path, header = 0)
-    data = data.drop(columns=['PassengerId','Name','Sex','Ticket','Cabin','Embarked'],axis=1)
-    # data.drop(axis=0)
-    survived = data['Survived']
-    survived = survived.to_numpy()
-    data= data.drop('Survived',axis=1)
-    data = data.to_numpy()
-
-
-    iris_data,iris_label = load_iris(return_X_y=True)
-    print(survived)
+    data_raw, true_labels = load_excel('./real_raw/iris.xlsx')
+    distance = get_distance_matrix(data_raw)
+    dc1 = select_dc(distance)
+    rhos1 = get_local_density(distance, dc1)
+    delta1, nearest_neighbor = get_deltas(distance, rhos1)
+    # matrix = rhos1 * delta1
+    # print(matrix)
+    center1 = find_k_centers(distance, 0.02, 3)
+    draw_decision(data_raw, rhos1, delta1)
+    # kernel = gaussian_kernel(data_raw)
+    # dc2 = select_dc(kernel)
+    # rhos2 = get_local_density(kernel, dc2)
+    # delta2, nearest_neighbor = get_deltas(kernel, rhos2)
+    # center2 = find_k_centers(kernel,0.02, 3)
+    # draw_decision(data_raw, rhos2, delta2)
+    print(center1)
+    # print(center2)

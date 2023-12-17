@@ -29,6 +29,7 @@ def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):
     for i in range(num):
         for value in labels.values():
             label.append(value[i])
+    k = len(labels.values())
     # print(label)
     # print(random_unlabeled_points)
     mixed_labels = deepcopy(true_labels)
@@ -38,7 +39,7 @@ def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):
             mixed_labels[i] = -1
     ss = StandardScaler()
     data_raw = ss.fit_transform(data_raw)
-    return data_raw, true_labels, mixed_labels, labels ,label
+    return data_raw, true_labels, mixed_labels, labels, label, k
 
 def load_data_bypersent(data_raw,true_labels,percent=0.02,random_seed=None):
     num = int(len(data_raw)*percent)
@@ -55,6 +56,7 @@ def load_data_bypersent(data_raw,true_labels,percent=0.02,random_seed=None):
     for i in range(num):
         for value in labels.values():
             label.append(value[i])
+    k = len(labels.values())
     # print(label)
     # print(random_unlabeled_points)
     mixed_labels = deepcopy(true_labels)
@@ -64,7 +66,7 @@ def load_data_bypersent(data_raw,true_labels,percent=0.02,random_seed=None):
             mixed_labels[i] = -1
     ss = StandardScaler()
     data_raw = ss.fit_transform(data_raw)
-    return data_raw, true_labels, mixed_labels, labels ,label
+    return data_raw, true_labels, mixed_labels, labels, label, k
 
 def get_distance_matrix(datas):
     n = np.shape(datas)[0]
@@ -100,6 +102,54 @@ def gaussian_kernel(X,sigma= 20):
     K *= -sigma
     np.exp(K, K)  # <==> K = np.exp(K)
     return K
+def select_dc(distance_matrix,percent=0.02):
+    n = np.shape(distance_matrix)[0]
+    distance_array = np.reshape(distance_matrix, n * n)     # 将300x300的距离矩阵铺平为90000x1的向量
+    position = int(n * (n - 1) * percent)
+    dc = np.sort(distance_array)[position + n]
+    # 取数据集的第2%的距离当做dc
+    return dc
+def get_local_density(distance_matrix, dc, method=None):
+    n = np.shape(distance_matrix)[0]
+    rhos = np.zeros(n)
+    for i in range(n):
+        if method is None:
+            rhos[i] = np.where(distance_matrix[i, :] < dc)[0].shape[0] - 1
+        else:
+            pass
+    # 直接对每个点周围距离小于dc的点进行计数,输出一个300的密度向量
+    return rhos
+def get_deltas(distance_matrix, rhos):
+    n = np.shape(distance_matrix)[0]
+    deltas = np.zeros(n)
+    nearest_neighbor = np.zeros(n)
+    rhos_index = np.argsort(-rhos)  # 得到密度ρ从大到小的排序的索引
+    for i, index in enumerate(rhos_index):
+        if i == 0:
+            continue
+        higher_rhos_index = rhos_index[:i]
+        deltas[index] = np.min(distance_matrix[index, higher_rhos_index])
+        nearest_neighbors_index = np.argmin(distance_matrix[index, higher_rhos_index])
+        nearest_neighbor[index] = higher_rhos_index[nearest_neighbors_index].astype(int)
+    deltas[rhos_index[0]] = np.max(deltas)
+    return deltas, nearest_neighbor
+def draw_decision(datas, rhos, deltas):
+    n = np.shape(datas)[0]
+    for i in range(n):
+        plt.scatter(rhos[i], deltas[i], s=16, color=(0, 0, 0))
+        plt.annotate(str(i), xy=(rhos[i], deltas[i]), xytext=(rhos[i], deltas[i]))
+        plt.xlabel('local density-ρ')
+        plt.ylabel('minimum distance to higher density points-δ')
+    plt.show()
+
+def find_k_centers(distance_matrix, percent, k):
+    dc = select_dc(distance_matrix,percent)
+    rhos = get_local_density(distance_matrix, dc)
+    deltas, nearest_neighbor = get_deltas(distance_matrix, rhos)
+    rho_and_delta = rhos * deltas
+    centers = np.argsort(-rho_and_delta)
+    draw_decision(distance_matrix,rhos,deltas)
+    return centers[:k]
 
 def get_delta(X,label):
     n = X.shape[0]
@@ -216,8 +266,6 @@ class LabelSpreading():
         概率预测
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            The data matrix.
         Returns
         -------
         probabilities : shape (n_samples, n_classes)
@@ -237,7 +285,7 @@ class LabelSpreading():
         acc = metrics.accuracy_score(self.predict(X), y)
         return metrics.classification_report(self.predict(X), y, zero_division=1),acc
 
-    def label_drawing(self, X, labels):
+    def label_drawing(self, X, labels, k_centers):
         y = self.predict(X)
         # iris = load_iris()
         targets = list(labels.keys())
@@ -247,6 +295,7 @@ class LabelSpreading():
         # print(X,y,labels,targets)
         for i in range(len(labels)):
             plt.scatter(X[:, 0][y == targets[i]], X[:, 1][y == targets[i]],label=targets[i])
+        plt.scatter(X[:, 0][k_centers], X[:, 1][k_centers], c='k', label='centers')
         # plt.plot(X[:, 0][y == 0], X[:, 1][y == 0], 'bs', label=targets[0])
         # plt.plot(X[:, 0][y == 1], X[:, 1][y == 1], 'kx', label=targets[1])
         # plt.plot(X[:, 0][y == 2], X[:, 1][y == 2], 'ro', label=targets[2])
@@ -265,36 +314,35 @@ def load_excel(path):
     data_maxmin = (data - data.min())/(data.max() - data.min())
 
     # print(data_maxmin)
-    return data_maxmin, true_labels
+    return data, true_labels
 def test_label_spreading():
     # 加载文件位置
     # data_raw, true_labels = load_iris(return_X_y=True)
-    data_raw, true_labels = load_excel('./real_raw/iris.xlsx')
+    data_raw, true_labels = load_excel('real_raw/R15.xlsx')
     # 选取样本个数或总百分比
-    # x, y, y_mixed,labels,label = load_data_bynum(data_raw,true_labels,random_seed=2023,num=2)
-    x, y, y_mixed,labels,label = load_data_bypersent(data_raw,true_labels,random_seed=2023,percent=0.02)
+    # x, y, y_mixed, labels, label, k = load_data_bynum(data_raw,true_labels,random_seed=2023,num=2)
+    x, y, y_mixed, labels, label, k = load_data_bypersent(data_raw,true_labels,random_seed=None,percent=0.02)
     alpha = 0.2
     b = 0.5
-    model_knn = LabelSpreading(type='knn', alpha=alpha, b=b)
-    model_knn._get_constant(data_raw,label)
-    model_knn.fit(x, y_mixed)
+    k_centers = find_k_centers(euclidean_distances(data_raw), 0.02, k)
+    # model_knn = LabelSpreading(type='knn', alpha=alpha, b=b)
+    # model_knn._get_constant(data_raw, euclidean(get_distance_matrix(data_raw), 0.02, k))
+    # model_knn.fit(x, y_mixed)
 
     model_dng = LabelSpreading(type='dng', alpha=alpha, b=b)
-    model_dng._get_constant(data_raw,label)
+    model_dng._get_constant(data_raw, k_centers)
     model_dng.fit(x, y_mixed)
 
-
-    score_knn, acc_knn = model_knn.score(x, y)
-    print('knn算法:')
-    print(score_knn)
-    print('准确度为', acc_knn)
-    # print(label)
-    model_knn.label_drawing(x, labels)
+    # score_knn, acc_knn = model_knn.score(x, y)
+    # print('knn算法:')
+    # print(score_knn)
+    # print('准确度为', acc_knn)
+    # model_knn.label_drawing(x, labels)
 
     score_dng , acc_dng = model_dng.score(x, y)
     print('dng算法:')
     print(score_dng)
     print('准确度为', acc_dng)
-    model_dng.label_drawing(x, labels)
+    model_dng.label_drawing(x, labels, k_centers)
 if __name__ == '__main__':
     test_label_spreading()
