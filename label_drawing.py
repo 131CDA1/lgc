@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from label_spread import predict
+from label_spreading import predict
 def label_drawing(labels, k_centers, classes, label_distributions, X, sigma, delta, label, type):
     y = predict(classes, label_distributions, X, sigma, delta, label, type)
     targets = list(labels.keys())

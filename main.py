@@ -1,6 +1,6 @@
 from load_data import *
 from find_centers import *
-from label_spread import *
+from label_spreading import *
 from sklearn.metrics.pairwise import euclidean_distances
 from label_drawing import *
 
