@@ -1,10 +1,14 @@
 from sklearn.metrics.pairwise import euclidean_distances
 import numpy as np
+
+
 def gaussian_kernel(X, sigma=20):
-    K = euclidean_distances(X,squared=True)
+    K = euclidean_distances(X, squared=True)
     K *= -sigma
     np.exp(K, K)
     return K
+
+
 def density_based_kernel(X, sigma, delta, label):
     n = np.shape(X)[0]
 
@@ -19,6 +23,8 @@ def density_based_kernel(X, sigma, delta, label):
     K = K.reshape(n, n)
     np.fill_diagonal(K, 0)
     return K
+
+
 def get_kernel(X, sigma, delta, label, type=""):
     if type == 'knn':
         return gaussian_kernel(X, sigma)

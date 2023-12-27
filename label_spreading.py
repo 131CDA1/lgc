@@ -3,6 +3,7 @@ from scipy.sparse import csgraph
 from kernel import get_kernel
 from sklearn import metrics
 
+
 def build_graph(X, sigma, delta, label, type):
     # 计算标准化后的拉普拉斯矩阵
     n_samples = X.shape[0]
@@ -85,6 +86,8 @@ def predict_proba(label_distributions, X, sigma, delta, label, type):
     probabilities /= normalizer
     return probabilities
 
+
 def score(classes, y, label_distributions, X, sigma, delta, label, type):
     acc = metrics.accuracy_score(predict(classes, label_distributions, X, sigma, delta, label, type), y)
-    return metrics.classification_report(predict(classes, label_distributions, X, sigma, delta, label, type), y, zero_division=1), acc
+    return metrics.classification_report(predict(classes, label_distributions, X, sigma, delta, label, type), y,
+                                         zero_division=1), acc
