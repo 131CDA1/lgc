@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from label_spreading import predict
-def label_drawing(labels, k_centers, classes, label_distributions, X, sigma, delta, label, type):
-    y = predict(classes, label_distributions, X, sigma, delta, label, type)
+def label_drawing(labels, k_centers, classes, label_distributions, X, sigma, delta, label, method):
+    y = predict(classes, label_distributions, X, sigma, delta, label, method)
     targets = list(labels.keys())
     plt.figure(figsize=(10, 4))
     for i in range(len(labels)):

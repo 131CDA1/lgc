@@ -11,8 +11,8 @@ def load_excel(path):
     data = full_data.iloc[:,0:-1]
     data = data.to_numpy()
     true_labels = true_labels.to_numpy()
-    data_zscore = (data - data.mean(axis=0))/data.std(axis=0)
-    data_maxmin = (data - data.min())/(data.max() - data.min())
+    # data_zscore = (data - data.mean(axis=0))/data.std(axis=0)
+    # data_maxmin = (data - data.min())/(data.max() - data.min())
     return data, true_labels
 
 def load_data_bynum(data_raw,true_labels,num= 1,random_seed=None):

@@ -4,17 +4,17 @@ from kernel import get_kernel
 from sklearn import metrics
 
 
-def build_graph(X, sigma, delta, label, type):
+def build_graph(X, sigma, delta, label, method):
     # 计算标准化后的拉普拉斯矩阵
     n_samples = X.shape[0]
     # 切换knn或dng
-    affinity_matrix = get_kernel(X, sigma, delta, label, type)
+    affinity_matrix = get_kernel(X, sigma, delta, label, method)
     laplacian = -csgraph.laplacian(affinity_matrix, normed=True)
     laplacian.flat[::n_samples + 1] = 0.0  # 设置对角线原始全为0
     return laplacian
 
 
-def fit(X, y, sigma, delta, label, type, alpha=0.2):
+def fit(X, y, sigma, delta, label, method, alpha=0.2):
     """
     模型拟合
     Parameters
@@ -27,7 +27,7 @@ def fit(X, y, sigma, delta, label, type, alpha=0.2):
         All unlabeled samples will be transductively assigned labels.
     """
     # self.X_ = X
-    graph_matrix = build_graph(X, sigma, delta, label, type)
+    graph_matrix = build_graph(X, sigma, delta, label, method)
     classes = np.unique(y)
     classes = (classes[classes != -1])
 
@@ -51,7 +51,7 @@ def fit(X, y, sigma, delta, label, type, alpha=0.2):
     return classes, label_distributions
 
 
-def predict(classes, label_distributions, X, sigma, delta, label, type):
+def predict(classes, label_distributions, X, sigma, delta, label, method):
     """
     预测
     Parameters
@@ -63,11 +63,11 @@ def predict(classes, label_distributions, X, sigma, delta, label, type):
     y : ndarray of shape (n_samples,)
         Predictions for input data.
     """
-    probas = predict_proba(label_distributions, X, sigma, delta, label, type)
+    probas = predict_proba(label_distributions, X, sigma, delta, label, method)
     return classes[np.argmax(probas, axis=1)].ravel()
 
 
-def predict_proba(label_distributions, X, sigma, delta, label, type):
+def predict_proba(label_distributions, X, sigma, delta, label, method):
     """
     概率预测
     Parameters
@@ -77,7 +77,7 @@ def predict_proba(label_distributions, X, sigma, delta, label, type):
     probabilities : shape (n_samples, n_classes)
     """
     # 切换knn或dng
-    weight_matrices = get_kernel(X, sigma, delta, label, type)
+    weight_matrices = get_kernel(X, sigma, delta, label, method)
 
     weight_matrices = weight_matrices.T
     probabilities = np.matmul(weight_matrices, label_distributions)
@@ -87,7 +87,7 @@ def predict_proba(label_distributions, X, sigma, delta, label, type):
     return probabilities
 
 
-def score(classes, y, label_distributions, X, sigma, delta, label, type):
-    acc = metrics.accuracy_score(predict(classes, label_distributions, X, sigma, delta, label, type), y)
-    return metrics.classification_report(predict(classes, label_distributions, X, sigma, delta, label, type), y,
+def score(classes, y, label_distributions, X, sigma, delta, label, method):
+    acc = metrics.accuracy_score(predict(classes, label_distributions, X, sigma, delta, label, method), y)
+    return metrics.classification_report(predict(classes, label_distributions, X, sigma, delta, label, method), y,
                                          zero_division=1), acc

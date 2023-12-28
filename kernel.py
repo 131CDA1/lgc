@@ -25,10 +25,10 @@ def density_based_kernel(X, sigma, delta, label):
     return K
 
 
-def get_kernel(X, sigma, delta, label, type=""):
-    if type == 'knn':
+def get_kernel(X, sigma, delta, label, method=""):
+    if method == 'knn':
         return gaussian_kernel(X, sigma)
-    elif type == 'dng':
+    elif method == 'dng':
         return density_based_kernel(X, sigma, delta, label)
     else:
-        return "type变量名错误"
+        return "method变量名错误"
